@@ -2,9 +2,9 @@
 
 ##### 此tool只单独支持预约-抢购-成功后直接提交订单的商品.[口罩],只提供学习参考用途.!
 
-##### 此代码基于原作者https://github.com/tychxn/jd-assistan进行修改合并
+##### 此代码基于原作者https://github.com/tychxn/jd-assistan 进行修改合并
 
-##### 非常感谢原作者https://github.com/tychxn/jd-assistant提供的代码
+##### 非常感谢原作者https://github.com/tychxn/jd-assistant 提供的代码
 [![star, issue](https://img.shields.io/badge/star%2C%20issue-welcome-brightgreen.svg)](https://github.com/zhou-xiaojun/jd_mask)
 
 ## 主要功能
