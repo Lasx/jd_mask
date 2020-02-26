@@ -1,29 +1,8 @@
-import functools
 import json
 import random
-import re
-import sys
-import time
-import warnings
-from base64 import b64encode
 import requests
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_v1_5 as Cipher_pkcs1_v1_5
-from jd_mask.jdlogger import logger
-from jd_mask.config import global_config
+from config import global_config
 from lxml import etree
-
-
-RSA_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
-MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDC7kw8r6tq43pwApYvkJ5lalja
-N9BZb21TAIfT/vexbobzH7Q8SUdP5uDPXEBKzOjx2L28y7Xs1d9v3tdPfKI2LR7P
-AzWBmDMn8riHrDDNpUpJnlAGUqJG9ooPn8j7YNpcxCa1iybOlc2kEhmJn5uwoanQ
-q+CA6agNkqly2H4j6wIDAQAB
------END PUBLIC KEY-----"""
-
-DEFAULT_TIMEOUT = 10
-
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36'
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36",
@@ -78,91 +57,10 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.14 (KHTML, like Gecko) Chrome/24.0.1292.0 Safari/537.14"
     ]
 
-def encrypt_pwd(password, public_key=RSA_PUBLIC_KEY):
-    rsa_key = RSA.importKey(public_key)
-    encryptor = Cipher_pkcs1_v1_5.new(rsa_key)
-    cipher = b64encode(encryptor.encrypt(password.encode('utf-8')))
-    return cipher.decode('utf-8')
-
-def encrypt_payment_pwd(payment_pwd):
-    return ''.join(['u3' + x for x in payment_pwd])
-
-def response_status(resp):
-    if resp.status_code != requests.codes.OK:
-        print('Status: %u, Url: %s' % (resp.status_code, resp.url))
-        return False
-    return True
-
-def save_image(resp, image_file):
-    with open(image_file, 'wb') as f:
-        for chunk in resp.iter_content(chunk_size=1024):
-            f.write(chunk)
-
 def parse_json(s):
     begin = s.find('{')
     end = s.rfind('}') + 1
     return json.loads(s[begin:end])
-
-def get_tag_value(tag, key='', index=0):
-    if key:
-        value = tag[index].get(key)
-    else:
-        value = tag[index].text
-    return value.strip(' \t\r\n')
-
-def parse_items_dict(d):
-    result = ''
-    for index, key in enumerate(d):
-        if index < len(d) - 1:
-            result = result + '{0} x {1}, '.format(key, d[key])
-        else:
-            result = result + '{0} x {1}'.format(key, d[key])
-    return result
-
-def parse_area_id(area):
-    """解析地区id字符串：将分隔符替换为下划线 _
-    :param area: 地区id字符串（使用 _ 或 - 进行分割），如 12_904_3375 或 12-904-3375
-    :return: 解析后字符串
-    """
-    area_id_list = list(map(lambda x: x.strip(), re.split('_|-', area)))
-    area_id_list.extend((4 - len(area_id_list)) * ['0'])
-    return '_'.join(area_id_list)
-
-def split_area_id(area):
-    """将地区id字符串按照下划线进行切割，构成数组。数组长度不满4位则用'0'进行填充。
-    :param area: 地区id字符串（使用 _ 或 - 进行分割），如 12_904_3375 或 12-904-3375
-    :return: list
-    """
-    area_id_list = list(map(lambda x: x.strip(), re.split('_|-', area)))
-    area_id_list.extend((4 - len(area_id_list)) * ['0'])
-    return area_id_list
-
-def deprecated(func):
-    """This decorator is used to mark functions as deprecated.
-    It will result in a warning being emitted when the function is used.
-    作废方法
-    """
-    @functools.wraps(func)
-    def new_func(*args, **kwargs):
-        warnings.simplefilter('always', DeprecationWarning)  # turn off filter
-        warnings.warn(
-            "Call to deprecated function {}.".format(func.__name__),
-            category=DeprecationWarning,
-            stacklevel=2
-        )
-        warnings.simplefilter('default', DeprecationWarning)  # reset filter
-        return func(*args, **kwargs)
-    return new_func
-
-# def check_login(func):
-#     """用户登陆态校验装饰器。若用户未登陆，则调用扫码登陆"""
-#     @functools.wraps(func)
-#     def new_func(self, *args, **kwargs):
-#         if not self.is_login:
-#             logger.info("{0} 需登陆后调用，开始扫码登陆".format(func.__name__))
-#             self.login_by_QRcode()
-#         return func(self, *args, **kwargs)
-#     return new_func
 
 def get_random_useragent():
     """生成随机的UserAgent
@@ -171,6 +69,7 @@ def get_random_useragent():
     return random.choice(USER_AGENTS)
 
 def get_cookies():
+    """解析cookies内容并添加到cookiesJar"""
     manual_cookies = {}
     for item in global_config.getRaw('config','cookies_String').split(';'):
         name, value = item.strip().split('=', 1)
@@ -183,11 +82,11 @@ def get_cookies():
 def get_session():
     # 初始化session
     session = requests.session()
-    session.headers = {"User-Agent": DEFAULT_USER_AGENT,
+    session.headers = {"User-Agent": global_config.getRaw('config', 'DEFAULT_USER_AGENT'),
                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
                        "Connection": "keep-alive"}
     checksession = requests.session()
-    checksession.headers = {"User-Agent": DEFAULT_USER_AGENT,
+    checksession.headers = {"User-Agent": global_config.getRaw('config', 'DEFAULT_USER_AGENT'),
                             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3",
                             "Connection": "keep-alive"}
     # 获取cookies保存到session
@@ -195,6 +94,7 @@ def get_session():
     return session
 
 def get_sku_title():
+    """获取商品名称"""
     url = 'https://item.jd.com/{}.html'.format(global_config.getRaw('config','sku_id'))
     session = get_session()
     resp = session.get(url).content
@@ -202,30 +102,14 @@ def get_sku_title():
     sku_title = x_data.xpath('/html/head/title/text()')
     return sku_title[0]
 
-def check_login(func):
-    """用户登陆态校验装饰器。若用户未登陆，则调用扫码登陆"""
-    @functools.wraps(func)
-    def new_func(self,*args, **kwargs):
-        session = get_session()
-        for flag in range(1, 3):
-            try:
-                targetURL = 'https://order.jd.com/center/list.action'
-                payload = {
-                    'rid': str(int(time.time() * 1000)),
-                }
-                resp = session.get(
-                    url=targetURL, params=payload, allow_redirects=False)
-                if resp.status_code == requests.codes.OK:
-                    logger.info('校验是否登录[成功]')
-                    return True
-                else:
-                    logger.info('校验是否登录[失败]')
-                    logger.info('请从新输入cookie')
-                    time.sleep(1)
-                    continue
-            except Exception as e:
-                logger.info('cookie登录失败请重新获取cookie')
-                time.sleep(1)
-                sys.exit(1)
-        return func(self, *args, **kwargs)
-    return new_func
+def send_wechat(message):
+    """推送信息到微信"""
+    url = 'http://sc.ftqq.com/{}.send'.format(global_config.getRaw('messenger', 'sckey'))
+    payload = {
+        "text":'抢购结果',
+        "desp": message
+    }
+    headers = {
+        'User-Agent':global_config.getRaw('config', 'DEFAULT_USER_AGENT')
+    }
+    requests.get(url, params=payload, headers=headers)

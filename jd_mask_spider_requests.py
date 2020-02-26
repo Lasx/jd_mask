@@ -1,22 +1,22 @@
 import random
-from datetime import datetime
 import sys
 import time
-from jd_mask.jdlogger import logger
-from jd_mask.timer import Timer
+from jdlogger import logger
+from timer import Timer
 import requests
-from jd_mask.util import parse_json, get_session, DEFAULT_USER_AGENT, get_sku_title
-from prompt_toolkit import prompt
-from jd_mask.config import global_config
+from util import parse_json, get_session, get_sku_title,send_wechat
+from config import global_config
 
 class Jd_Mask_Spider(object):
     def __init__(self):
-        # 初始化session
+        # 初始化信息
         self.session = get_session()
         self.sku_id = global_config.getRaw('config', 'sku_id')
         self.seckill_init_info = dict()
         self.seckill_url = dict()
         self.seckill_order_data = dict()
+        self.timers = Timer()
+        self.default_user_agent = global_config.getRaw('config', 'DEFAULT_USER_AGENT')
 
     def login(self):
         for flag in range(1, 3):
@@ -45,8 +45,6 @@ class Jd_Mask_Spider(object):
     def make_reserve(self):
         """商品预约"""
         logger.info('商品名称:{}'.format(get_sku_title()))
-        logger.info('预购时间例子:2020-02-17 18:00:00.100')
-        appointment_time = prompt('请输入需要抢预购的时间:')  # 2020-02-17 19:00:01.100
         url = 'https://yushou.jd.com/youshouinfo.action?'
         payload = {
             'callback': 'fetchJSON',
@@ -54,46 +52,39 @@ class Jd_Mask_Spider(object):
             '_': str(int(time.time() * 1000)),
         }
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36',
+            'User-Agent': self.default_user_agent,
             'Referer': 'https://item.jd.com/{}.html'.format(self.sku_id),
         }
         resp = self.session.get(url=url, params=payload, headers=headers)
         resp_json = parse_json(resp.text)
         reserve_url = resp_json.get('url')
-        logger.info(reserve_url)
-        timers = Timer(appointment_time)
-        timers.start()
+        self.timers.start()
         while True:
             try:
                 self.session.get(url='https:' + reserve_url)
-                logger.info('总共预约使用时间:{}s'.format(time.time()))
                 logger.info('预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约')
-                logger.info('结束时间为:{}'.format(datetime.now()))
-                logger.info(
-                    '总共使用时间:{}'.format(
-                        datetime.now() -
-                        timers.buy_time))
+                if global_config.getRaw('messenger', 'enable') == 'true':
+                    success_message = "预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约"
+                    send_wechat(success_message)
                 break
             except Exception as e:
                 logger.error('预约失败正在重试...')
 
     def get_username(self):
-        """获取用户信息
-        :return: 用户名
-        """
+        """获取用户信息"""
         url = 'https://passport.jd.com/user/petName/getUserInfoForMiniJd.action'
         payload = {
             'callback': 'jQuery'.format(random.randint(1000000, 9999999)),
             '_': str(int(time.time() * 1000)),
         }
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/531.36',
+            'User-Agent': self.default_user_agent,
             'Referer': 'https://order.jd.com/center/list.action',
         }
         try:
             resp = self.session.get(url=url, params=payload, headers=headers)
             resp_json = parse_json(resp.text)
-            # many user info are included in response, now return nick name in it
+            # 响应中包含了许多用户信息，现在在其中返回昵称
             # jQuery2381773({"imgUrl":"//storage.360buyimg.com/i.imageUpload/xxx.jpg","lastLoginTime":"","nickName":"xxx","plusStatus":"0","realName":"xxx","userLevel":x,"userScoreVO":{"accountScore":xx,"activityScore":xx,"consumptionScore":xxxxx,"default":false,"financeScore":xxx,"pin":"xxx","riskScore":x,"totalScore":xxxxx}})
             return resp_json.get('nickName') or 'jd'
         except Exception:
@@ -103,7 +94,6 @@ class Jd_Mask_Spider(object):
         """获取商品的抢购链接
         点击"抢购"按钮后，会有两次302跳转，最后到达订单结算页面
         这里返回第一次跳转后的页面url，作为商品的抢购链接
-        :param sku_id: 商品id
         :return: 商品的抢购链接
         """
         url = 'https://itemko.jd.com/itemShowBtn'
@@ -114,7 +104,7 @@ class Jd_Mask_Spider(object):
             '_': str(int(time.time() * 1000)),
         }
         headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': self.default_user_agent,
             'Host': 'itemko.jd.com',
             'Referer': 'https://item.jd.com/{}.html'.format(self.sku_id),
         }
@@ -135,20 +125,14 @@ class Jd_Mask_Spider(object):
                 time.sleep(1)
 
     def request_seckill_url(self):
-        """访问商品的抢购链接（用于设置cookie等）
-        :param sku_id: 商品id
-        :return:
-        """
+        """访问商品的抢购链接（用于设置cookie等"""
         logger.info('用户:{}'.format(self.get_username()))
         logger.info('商品名称:{}'.format(get_sku_title()))
-        logger.info('预购时间例子:2020-02-17 18:00:00.100')
-        appointment_time = prompt('请输入需要抢预购的时间:')  # 2020-02-17 19:00:01.100
-        timers = Timer(appointment_time)
-        timers.start()
+        self.timers.start()
         self.seckill_url[self.sku_id] = self.get_seckill_url()
         logger.info('访问商品的抢购连接...')
         headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': self.default_user_agent,
             'Host': 'marathon.jd.com',
             'Referer': 'https://item.jd.com/{}.html'.format(self.sku_id),
         }
@@ -159,11 +143,7 @@ class Jd_Mask_Spider(object):
             allow_redirects=False)
 
     def request_seckill_checkout_page(self):
-        """访问抢购订单结算页面
-        :param sku_id: 商品id
-        :param num: 购买数量，可选参数，默认1个
-        :return:
-        """
+        """访问抢购订单结算页面"""
         logger.info('访问抢购订单结算页面...')
         url = 'https://marathon.jd.com/seckill/seckill.action'
         payload = {
@@ -172,7 +152,7 @@ class Jd_Mask_Spider(object):
             'rid': int(time.time())
         }
         headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': self.default_user_agent,
             'Host': 'marathon.jd.com',
             'Referer': 'https://item.jd.com/{}.html'.format(self.sku_id),
         }
@@ -180,8 +160,6 @@ class Jd_Mask_Spider(object):
 
     def _get_seckill_init_info(self):
         """获取秒杀初始化信息（包括：地址，发票，token）
-        :param sku_id:
-        :param num: 购买数量，可选参数，默认1个
         :return: 初始化信息组成的dict
         """
         logger.info('获取秒杀初始化信息...')
@@ -192,7 +170,7 @@ class Jd_Mask_Spider(object):
             'isModifyAddress': 'false',
         }
         headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': self.default_user_agent,
             'Host': 'marathon.jd.com',
         }
         resp = self.session.post(url=url, data=data, headers=headers)
@@ -200,8 +178,6 @@ class Jd_Mask_Spider(object):
 
     def _get_seckill_order_data(self):
         """生成提交抢购订单所需的请求体参数
-        :param sku_id: 商品id
-        :param num: 购买数量，可选参数，默认1个
         :return: 请求体参数组成的dict
         """
         logger.info('生成提交抢购订单所需参数...')
@@ -250,8 +226,6 @@ class Jd_Mask_Spider(object):
 
     def submit_seckill_order(self):
         """提交抢购（秒杀）订单
-        :param sku_id: 商品id
-        :param num: 购买数量，可选参数，默认1个
         :return: 抢购结果 True/False
         """
         url = 'https://marathon.jd.com/seckillnew/orderService/pc/submitOrder.action'
@@ -262,7 +236,7 @@ class Jd_Mask_Spider(object):
             )
         logger.info('提交抢购订单...')
         headers = {
-            'User-Agent': DEFAULT_USER_AGENT,
+            'User-Agent': self.default_user_agent,
             'Host': 'marathon.jd.com',
             'Referer': 'https://marathon.jd.com/seckill/seckill.action?skuId={0}&num={1}&rid={2}'.format(
                 self.sku_id, 1, int(time.time())),
@@ -286,11 +260,15 @@ class Jd_Mask_Spider(object):
             total_money = resp_json.get('totalMoney')
             pay_url = 'https:' + resp_json.get('pcUrl')
             logger.info(
-                '抢购成功，订单号: %s, 总价: %s, 电脑端付款链接: %s',
-                order_id,
-                total_money,
-                pay_url)
+                '抢购成功，订单号:{}, 总价:{}, 电脑端付款链接:{}'.format(order_id,total_money,pay_url)
+                )
+            if global_config.getRaw('messenger', 'enable') == 'true':
+                success_message = "抢购成功，订单号:{}, 总价:{}, 电脑端付款链接:{}".format(order_id, total_money, pay_url)
+                send_wechat(success_message)
             return True
         else:
-            logger.info('抢购失败，返回信息: %s', resp_json)
+            logger.info('抢购失败，返回信息:{}'.format(resp_json))
+            if global_config.getRaw('messenger', 'enable') == 'true':
+                error_message = '抢购失败，返回信息:{}'.format(resp_json)
+                send_wechat(error_message)
             return False
